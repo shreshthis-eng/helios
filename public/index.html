@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Helios - Solar Rooftop Prospecting & Ranking Platform</title>
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- Leaflet CSS & JS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <style>
+        :root {
+            --bg-dark: #0f172a;
+            --panel-bg: rgba(30, 41, 59, 0.85);
+            --panel-border: rgba(255, 255, 255, 0.1);
+            --accent-primary: #38bdf8;
+            --accent-solar: #f59e0b;
+            --accent-green: #10b981;
+            --accent-red: #ef4444;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* Header Bar */
+        header {
+            background: rgba(15, 23, 42, 0.95);
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--panel-border);
+            padding: 14px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .brand-icon {
+            width: 38px;
+            height: 38px;
+            background: linear-gradient(135deg, #f59e0b, #ef4444);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            box-shadow: 0 0 15px rgba(245, 158, 11, 0.4);
+        }
+
+        .brand-title {
+            font-family: 'Outfit', sans-serif;
+            font-size: 22px;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+            background: linear-gradient(to right, #ffffff, #93c5fd);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .brand-tag {
+            font-size: 11px;
+            background: rgba(56, 189, 248, 0.15);
+            color: var(--accent-primary);
+            padding: 3px 8px;
+            border-radius: 6px;
+            border: 1px solid rgba(56, 189, 248, 0.3);
+            text-transform: uppercase;
+            font-weight: 600;
+        }
+
+        .scenario-toggles {
+            display: flex;
+            gap: 8px;
+            background: rgba(30, 41, 59, 0.6);
+            padding: 4px;
+            border-radius: 10px;
+            border: 1px solid var(--panel-border);
+        }
+
+        .btn-scenario {
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            padding: 6px 14px;
+            font-size: 13px;
+            font-weight: 500;
+            border-radius: 7px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .btn-scenario.active, .btn-scenario:hover {
+            background: var(--accent-primary);
+            color: #0f172a;
+            font-weight: 700;
+            box-shadow: 0 2px 8px rgba(56, 189, 248, 0.3);
+        }
+
+        /* Main Workspace Layout */
+        .workspace {
+            display: flex;
+            flex: 1;
+            position: relative;
+        }
+
+        #map {
+            flex: 1;
+            height: 100%;
+            background: #090d16;
+        }
+
+        /* Sidebar Drawer */
+        .sidebar {
+            width: 420px;
+            background: var(--panel-bg);
+            backdrop-filter: blur(16px);
+            border-left: 1px solid var(--panel-border);
+            display: flex;
+            flex-direction: column;
+            z-index: 900;
+            overflow-y: auto;
+            padding: 20px;
+            gap: 20px;
+        }
+
+        .card {
+            background: rgba(15, 23, 42, 0.6);
+            border: 1px solid var(--panel-border);
+            border-radius: 12px;
+            padding: 16px;
+        }
+
+        .card-header {
+            font-family: 'Outfit', sans-serif;
+            font-size: 16px;
+            font-weight: 700;
+            color: var(--accent-primary);
+            margin-bottom: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .stat-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+        }
+
+        .stat-box {
+            background: rgba(30, 41, 59, 0.5);
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .stat-label {
+            font-size: 11px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+
+        }
+
+        .stat-value {
+            font-size: 18px;
+            font-weight: 700;
+            margin-top: 4px;
+            color: var(--text-main);
+        }
+
+        /* Candidate List Item */
+        .candidate-item {
+            background: rgba(30, 41, 59, 0.7);
+            border: 1px solid var(--panel-border);
+            border-radius: 10px;
+            padding: 14px;
+            margin-bottom: 10px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .candidate-item:hover, .candidate-item.selected {
+            border-color: var(--accent-primary);
+            background: rgba(56, 189, 248, 0.1);
+            transform: translateY(-2px);
+        }
+
+        .candidate-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .rank-badge {
+            background: linear-gradient(135deg, #38bdf8, #3b82f6);
+            color: #0f172a;
+            font-weight: 800;
+            font-size: 12px;
+            padding: 3px 8px;
+            border-radius: 6px;
+        }
+
+        .candidate-id {
+            font-weight: 700;
+            font-size: 14px;
+        }
+
+        .metric-row {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            margin-top: 8px;
+            color: var(--text-muted);
+        }
+
+        .metric-val {
+            color: var(--text-main);
+            font-weight: 600;
+        }
+
+        .tag-pill {
+            font-size: 10px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            background: rgba(16, 185, 129, 0.2);
+            color: #34d399;
+            margin-right: 4px;
+            display: inline-block;
+            margin-top: 6px;
+        }
+
+        .tag-pill.caution {
+            background: rgba(245, 158, 11, 0.2);
+            color: #fbbf24;
+        }
+
+        /* Review Buttons */
+        .review-btn-group {
+            display: flex;
+            gap: 6px;
+            margin-top: 10px;
+        }
+
+        .btn-review {
+            flex: 1;
+            padding: 6px;
+            font-size: 11px;
+            font-weight: 600;
+            border: 1px solid var(--panel-border);
+            border-radius: 6px;
+            background: rgba(30, 41, 59, 0.8);
+            color: var(--text-muted);
+            cursor: pointer;
+        }
+
+        .btn-review.inspect:hover, .btn-review.inspect.active {
+            background: var(--accent-green);
+            color: #0f172a;
+        }
+
+        .btn-review.uncertain:hover, .btn-review.uncertain.active {
+            background: var(--accent-solar);
+            color: #0f172a;
+        }
+
+        .btn-review.reject:hover, .btn-review.reject.active {
+            background: var(--accent-red);
+            color: white;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="brand">
+            <div class="brand-icon">☀️</div>
+            <div>
+                <span class="brand-title">HELIOS</span>
+                <span class="brand-tag">Kharghar AOI</span>
+            </div>
+        </div>
+
+        <div class="scenario-toggles">
+            <button class="btn-scenario active" onclick="switchScenario('balanced')">Balanced</button>
+            <button class="btn-scenario" onclick="switchScenario('energy_first')">Energy-First</button>
+            <button class="btn-scenario" onclick="switchScenario('cost_first')">Cost-First</button>
+            <button class="btn-scenario" onclick="switchScenario('accessibility_first')">Accessibility</button>
+        </div>
+    </header>
+
+    <div class="workspace">
+        <div id="map"></div>
+
+        <div class="sidebar">
+            <div class="card">
+                <div class="card-header">
+                    <span>Prospective Overview</span>
+                    <span style="font-size: 12px; color: var(--text-muted);" id="candidate-count">0 candidates</span>
+                </div>
+                <div class="stat-grid">
+                    <div class="stat-box">
+                        <div class="stat-label">Total Roof Area</div>
+                        <div class="stat-value" id="stat-area">0 m²</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-label">Solar Capacity</div>
+                        <div class="stat-value" id="stat-capacity">0 kWp</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-label">Est. Generation</div>
+                        <div class="stat-value" id="stat-yield">0 MWh/yr</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-label">Avg Payback</div>
+                        <div class="stat-value" id="stat-payback">0 yrs</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card" style="flex: 1; overflow-y: auto;">
+                <div class="card-header">Ranked Candidates</div>
+                <div id="candidate-list">
+                    <!-- Candidate items dynamically rendered -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let map;
+        let geojsonLayer;
+        let currentScenario = 'balanced';
+        let rawGeoData = null;
+
+        document.addEventListener('DOMContentLoaded', () => {
+            initMap();
+            loadCandidates();
+        });
+
+        function initMap() {
+            // Center map on Kharghar
+            map = L.map('map').setView([19.035, 73.065], 14);
+
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                attribution: '&copy; OpenStreetMap &copy; CARTO',
+                subdomains: 'abcd',
+                maxZoom: 19
+            }).addTo(map);
+        }
+
+        async function loadCandidates() {
+            try {
+                const resp = await fetch('/api/candidates');
+                rawGeoData = await resp.json();
+                renderGeoData(rawGeoData);
+            } catch (err) {
+                console.error("Failed to load candidate data", err);
+            }
+        }
+
+        function renderGeoData(geoData) {
+            if (geojsonLayer) map.removeLayer(geojsonLayer);
+
+            const features = geoData.features || [];
+            let totalArea = 0;
+            let totalCapacity = 0;
+            let totalYield = 0;
+            let paybackSum = 0;
+            let count = 0;
+
+            features.sort((a, b) => (a.properties.rank || 999) - (b.properties.rank || 999));
+
+            const listContainer = document.getElementById('candidate-list');
+            listContainer.innerHTML = '';
+
+            geojsonLayer = L.geoJSON(geoData, {
+                pointToLayer: (feature, latlng) => {
+                    const props = feature.properties;
+                    const isTop10 = props.rank && props.rank <= 10;
+                    
+                    const markerColor = isTop10 ? '#10b981' : (props.eligible ? '#38bdf8' : '#64748b');
+                    const radius = isTop10 ? 9 : 6;
+
+                    return L.circleMarker(latlng, {
+                        radius: radius,
+                        fillColor: markerColor,
+                        color: '#ffffff',
+                        weight: isTop10 ? 2 : 1,
+                        opacity: 1,
+                        fillOpacity: 0.85
+                    });
+                },
+                onEachFeature: (feature, layer) => {
+                    const props = feature.properties;
+                    layer.bindPopup(`
+                        <div style="color: #0f172a; font-family: sans-serif;">
+                            <strong>${props.candidate_id} (Rank #${props.rank})</strong><br/>
+                            Capacity: ${props.capacity_kwp} kWp<br/>
+                            Est. Yield: ${props.annual_yield_kwh.toLocaleString()} kWh/yr<br/>
+                            Payback: ${props.payback_years} years
+                        </div>
+                    `);
+                }
+            }).addTo(map);
+
+            features.forEach(feat => {
+                const props = feat.properties;
+                if (props.eligible) {
+                    totalArea += props.usable_area_m2 || 0;
+                    totalCapacity += props.capacity_kwp || 0;
+                    totalYield += props.annual_yield_kwh || 0;
+                    paybackSum += props.payback_years || 0;
+                    count++;
+                }
+
+                // Render list item
+                const item = document.createElement('div');
+                item.className = 'candidate-item';
+                item.onclick = () => {
+                    map.flyTo([feat.geometry.coordinates[1], feat.geometry.coordinates[0]], 16);
+                };
+
+                const positivesHtml = (props.positive_reasons || []).map(r => `<span class="tag-pill">${r}</span>`).join('');
+                const cautionsHtml = (props.cautions || []).map(c => `<span class="tag-pill caution">${c}</span>`).join('');
+
+                item.innerHTML = `
+                    <div class="candidate-header">
+                        <span class="candidate-id">${props.candidate_id}</span>
+                        <span class="rank-badge">#${props.rank}</span>
+                    </div>
+                    <div class="metric-row">
+                        <span>Roof Area: <span class="metric-val">${props.usable_area_m2} m²</span></span>
+                        <span>Capacity: <span class="metric-val">${props.capacity_kwp} kWp</span></span>
+                    </div>
+                    <div class="metric-row">
+                        <span>Est. Yield: <span class="metric-val">${(props.annual_yield_kwh / 1000).toFixed(1)} MWh</span></span>
+                        <span>Payback: <span class="metric-val">${props.payback_years} yrs</span></span>
+                    </div>
+                    <div style="margin-top: 6px;">
+                        ${positivesHtml} ${cautionsHtml}
+                    </div>
+                    <div class="review-btn-group" onclick="event.stopPropagation()">
+                        <button class="btn-review inspect ${props.human_review_label === 'inspect' ? 'active' : ''}" onclick="submitReview('${props.candidate_id}', 'inspect')">Inspect</button>
+                        <button class="btn-review uncertain ${props.human_review_label === 'uncertain' ? 'active' : ''}" onclick="submitReview('${props.candidate_id}', 'uncertain')">Uncertain</button>
+                        <button class="btn-review reject ${props.human_review_label === 'reject' ? 'active' : ''}" onclick="submitReview('${props.candidate_id}', 'reject')">Reject</button>
+                    </div>
+                `;
+                listContainer.appendChild(item);
+            });
+
+            document.getElementById('candidate-count').innerText = `${features.length} candidates`;
+            document.getElementById('stat-area').innerText = `${Math.round(totalArea).toLocaleString()} m²`;
+            document.getElementById('stat-capacity').innerText = `${(totalCapacity / 1000).toFixed(1)} MWp`;
+            document.getElementById('stat-yield').innerText = `${(totalYield / 1000000).toFixed(2)} GWh/yr`;
+            document.getElementById('stat-payback').innerText = `${count > 0 ? (paybackSum / count).toFixed(1) : 0} yrs`;
+        }
+
+        async function switchScenario(scenario) {
+            currentScenario = scenario;
+            document.querySelectorAll('.btn-scenario').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+
+            await fetch('/api/rerank', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ scenario: scenario })
+            });
+
+            loadCandidates();
+        }
+
+        async function submitReview(candidateId, label) {
+            await fetch('/api/review', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ candidate_id: candidateId, label: label })
+            });
+            loadCandidates();
+        }
+    </script>
+</body>
+</html>

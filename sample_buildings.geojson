@@ -1,0 +1,17 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "candidate_id": "KHAR_000123",
+        "reported_height": 21.4,
+        "dem_elevation": 18.0
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[73.06, 19.03], [73.061, 19.03], [73.061, 19.031], [73.06, 19.031], [73.06, 19.03]]]
+      }
+    }
+  ]
+}

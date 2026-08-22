@@ -1,0 +1,21 @@
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+
+# Database and SQLite
+*.sqlite
+*.sqlite3
+*.db
+
+# Large generated data files
+kharghar_raw_buildings.csv
+spatial_features.parquet
+
+# Environment variables & IDE files
+.env
+.vscode/
+.idea/
+.DS_Store
