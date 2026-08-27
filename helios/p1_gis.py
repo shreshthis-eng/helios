@@ -34,8 +34,41 @@ class Person1GISEngineer:
 
     def load_raw_candidates(self, limit: int = 1000) -> List[CandidateBuildingP1]:
         candidates = []
-        
-        # 1. Try loading from official team candidate_buildings.geojson if present
+
+        # 1. Load from Kharghar Open Buildings CSV if limit > 15 or sample geojson missing
+        if os.path.exists(self.raw_csv_path) and (limit > 15 or not os.path.exists(self.sample_geojson_path)):
+            df = pd.read_csv(self.raw_csv_path)
+            if limit:
+                df = df.head(limit)
+                
+            for idx, row in df.iterrows():
+                cand_id = f"KHAR_{idx+1:06d}"
+                lat = float(row['latitude'])
+                lon = float(row['longitude'])
+                area = float(row.get('area_in_meters', 250.0))
+                geom_str = str(row.get('geometry', ''))
+                
+                conf = float(row.get('confidence', 0.8))
+                reported_height = round(8.0 + (area % 25) * 0.8, 1)
+                dem_elev = round(12.0 + (lat - 19.01) * 300, 1)
+                
+                candidates.append(CandidateBuildingP1(
+                    candidate_id=cand_id,
+                    latitude=lat,
+                    longitude=lon,
+                    footprint_area_m2=max(10.0, area),
+                    reported_height_m=reported_height,
+                    height_confidence=conf,
+                    dem_elevation_m=dem_elev,
+                    road_layer_available=True,
+                    power_layer_available=True,
+                    source_ids=["GOBS", "OSM"],
+                    geometry_wkt=geom_str
+                ))
+            if len(candidates) > 0:
+                return candidates
+
+        # 2. Try loading from official team sample candidate_buildings.geojson if present
         if os.path.exists(self.sample_geojson_path):
             with open(self.sample_geojson_path, 'r') as f:
                 data = json.load(f)
@@ -82,37 +115,6 @@ class Person1GISEngineer:
             if len(candidates) > 0:
                 return candidates
 
-        # 2. Try loading from extracted Kharghar CSV if available
-        if os.path.exists(self.raw_csv_path):
-            df = pd.read_csv(self.raw_csv_path)
-            if limit:
-                df = df.head(limit)
-                
-            for idx, row in df.iterrows():
-                cand_id = f"KHAR_{idx+1:06d}"
-                lat = float(row['latitude'])
-                lon = float(row['longitude'])
-                area = float(row.get('area_in_meters', 250.0))
-                geom_str = str(row.get('geometry', ''))
-                
-                conf = float(row.get('confidence', 0.8))
-                reported_height = round(8.0 + (area % 25) * 0.8, 1)
-                dem_elev = round(12.0 + (lat - 19.01) * 300, 1)
-                
-                candidates.append(CandidateBuildingP1(
-                    candidate_id=cand_id,
-                    latitude=lat,
-                    longitude=lon,
-                    footprint_area_m2=area,
-                    reported_height_m=reported_height,
-                    height_confidence=conf,
-                    dem_elevation_m=dem_elev,
-                    road_layer_available=True,
-                    power_layer_available=True,
-                    source_ids=["GOBS", "OSM"],
-                    geometry_wkt=geom_str
-                ))
-            return candidates
             for idx, feat in enumerate(data.get("features", [])):
                 props = feat.get("properties", {})
                 cand_id = props.get("candidate_id", f"KHAR_{idx+1:06d}")

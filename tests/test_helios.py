@@ -109,5 +109,26 @@ class TestHeliosPipeline(unittest.TestCase):
         if os.path.exists("test_helios.sqlite"):
             os.remove("test_helios.sqlite")
 
+    def test_shade_engine_pvlib_pysolar(self):
+        from shade_engine import ShadeEngine, SolarAccessResult
+        engine = ShadeEngine(latitude=19.0307, longitude=73.0652, grid_resolution_m=0.5, min_solar_access_threshold_pct=80.0)
+        res = engine.simulate(
+            candidate_id="KHAR_TEST_SHADE",
+            roof_width_m=10.0,
+            roof_length_m=10.0,
+            building_height_m=15.0
+        )
+        self.assertIsInstance(res, SolarAccessResult)
+        self.assertEqual(res.grid_resolution_m, 0.5)
+        # 10m x 10m with 0.5m grid resolution = 20 x 20 = 400 cells
+        self.assertEqual(res.total_grid_cells, 400)
+        self.assertEqual(res.annual_solar_access_matrix.shape, (20, 20))
+        self.assertEqual(res.filtered_solar_access_matrix.shape, (20, 20))
+        
+        # Verify that all filtered cells are either >= 80% or 0.0
+        filtered_vals = res.filtered_solar_access_matrix[res.filtered_solar_access_matrix > 0]
+        if len(filtered_vals) > 0:
+            self.assertTrue(all(val >= 80.0 for val in filtered_vals))
+
 if __name__ == "__main__":
     unittest.main()

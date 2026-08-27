@@ -6,40 +6,120 @@ REST API and Web Server for Helios Solar Rooftop Prospecting
 import os
 import json
 import sqlite3
-from http.server import HTTPServer, SimpleHTTPRequestHandler
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 
 from helios.p5_integration import Person5PlatformEngineer
 
-PORT = 8000
+PORT = 8050
 DB_PATH = "helios_database.sqlite"
 
-class HeliosRequestHandler(SimpleHTTPRequestHandler):
-    def do_GET(self):
-        parsed = urlparse(self.path)
-        path = parsed.path
 
-        if path == "/api/candidates":
-            self._send_json(self._get_candidates_geojson())
-        elif path.startswith("/api/candidates/"):
-            cand_id = path.replace("/api/candidates/", "")
-            self._send_json(self._get_candidate_detail(cand_id))
-        elif path == "/api/summary":
-            self._send_json(self._get_summary())
-        elif path == "/" or path == "/index.html":
-            self._serve_static("public/index.html", "text/html")
-        else:
-            # serve static files from public directory
-            static_file = os.path.join("public", path.lstrip("/"))
-            if os.path.exists(static_file) and not os.path.isdir(static_file):
-                ext = os.path.splitext(static_file)[1]
-                content_type = "text/html"
-                if ext == ".css": content_type = "text/css"
-                elif ext == ".js": content_type = "application/javascript"
-                elif ext == ".json": content_type = "application/json"
-                self._serve_static(static_file, content_type)
+class HeliosRequestHandler(BaseHTTPRequestHandler):
+
+    def do_GET(self):
+        try:
+            parsed = urlparse(self.path)
+            path = parsed.path
+            print(f"[SERVER DEBUG] Request path: '{path}'", flush=True)
+
+            if path == "/api/candidates":
+
+                self._send_json(self._get_candidates_geojson())
+                return
+            elif path.startswith("/api/analysis/"):
+                cand_id = path.replace("/api/analysis/", "")
+                self._send_json(self._get_engine_analysis_json(cand_id))
+                return
+            elif path.startswith("/api/candidates/"):
+                cand_id = path.replace("/api/candidates/", "")
+                self._send_json(self._get_candidate_detail(cand_id))
+                return
+            elif path == "/api/summary":
+                self._send_json(self._get_summary())
+                return
+            elif path == "/" or path == "/index.html":
+                self._serve_static("public/index.html", "text/html")
+                return
             else:
-                self.send_error(404, "File Not Found")
+                static_file = os.path.join("public", path.lstrip("/"))
+                if os.path.exists(static_file) and not os.path.isdir(static_file):
+                    ext = os.path.splitext(static_file)[1]
+                    content_type = "text/html"
+                    if ext == ".css": content_type = "text/css"
+                    elif ext == ".js": content_type = "application/javascript"
+                    elif ext == ".json": content_type = "application/json"
+                    self._serve_static(static_file, content_type)
+                else:
+                    self.send_error(404, f"File Not Found: {path}")
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            self._send_json({"error": str(e)}, status=500)
+
+
+
+    def _get_engine_analysis_json(self, cand_id: str) -> Dict[str, Any]:
+        """Generates exact structured Helios System Engine JSON payload for a target rooftop."""
+        from helios.ai_pipeline.pipeline import AIRooftopEngineeringPipeline
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute("SELECT candidate_id, latitude, longitude, p1_data, p2_data FROM candidates WHERE candidate_id = ?", (cand_id,))
+        row = cur.fetchone()
+        conn.close()
+
+        if not row:
+            # Fallback evaluation for candidate_id
+            footprint_area = 450.0
+            height = 15.0
+        else:
+            cid, lat, lon, p1_str, p2_str = row
+            p1 = json.loads(p1_str) if p1_str else {}
+            p2 = json.loads(p2_str) if p2_str else {}
+            footprint_area = float(p1.get("footprint_area_m2") or 450.0)
+            height = float(p1.get("reported_height_m") or 15.0)
+
+
+        pipeline = AIRooftopEngineeringPipeline(resident_reserve_pct=0.15)
+        res = pipeline.analyze_rooftop(cand_id, footprint_area, height)
+
+        baseline_70_m2 = footprint_area * 0.70
+        delta_pct = round(((res.usable_area_m2 - baseline_70_m2) / baseline_70_m2) * 100.0, 1)
+
+        return {
+            "building_id": res.candidate_id,
+            "roof_metrics": {
+                "gross_area_sqm": res.footprint_area_m2,
+                "clear_usable_area_sqm": res.clear_area_m2,
+                "clear_area_percentage": round((res.clear_area_m2 / res.footprint_area_m2) * 100.0, 1) if res.footprint_area_m2 > 0 else 0.0,
+                "baseline_70_percent_error_margin": f"{delta_pct:+}%"
+            },
+            "geometry": {
+                "roof_type": f"{res.roof_type} Plane",
+                "primary_slope_deg": res.slope_deg,
+                "azimuth_facing": f"{int(res.stage2_geometry.get('aspect_azimuth_deg', 0))}_deg_South"
+            },
+            "solar_potential": {
+                "annual_solar_access_avg": res.annual_solar_access_pct,
+                "unshaded_usable_area_sqm": res.usable_area_m2
+            },
+            "engineered_layout": {
+                "selected_panel": "Mono-PERC 540W (2.28m x 1.13m)",
+                "total_panels_placed": res.panel_count,
+                "system_dc_capacity_kwp": res.installed_capacity_kwp,
+                "est_annual_generation_kwh": round(res.installed_capacity_kwp * 1420.0 * (res.annual_solar_access_pct / 100.0), 1),
+                "setback_rules_applied": {
+                    "parapet_clearance_m": 1.0,
+                    "maintenance_walkway_m": 0.8,
+                    "resident_access_reserved_pct": 15.0
+                }
+            },
+            "flags_for_verification": [
+                "VERIFY_WATER_TANK_HEIGHT",
+                "CHECK_PARAPET_STRUCTURAL_MARGIN"
+            ]
+        }
+
 
     def do_POST(self):
         parsed = urlparse(self.path)

@@ -19,3 +19,5 @@ spatial_features.parquet
 .vscode/
 .idea/
 .DS_Store
+*.npy
+
