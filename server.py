@@ -239,6 +239,9 @@ class HeliosRequestHandler(BaseHTTPRequestHandler):
             "usable_unshaded_area_m2": res.usable_unshaded_area_m2,
             "total_roof_area_m2": res.total_roof_area_m2,
             "shading_factor": res.shading_factor,
+            "baseline_ghi_kwh_m2_yr": res.baseline_ghi_kwh_m2_yr,
+            "effective_irradiance_factor": res.effective_irradiance_factor,
+            "net_irradiance_factor": res.net_irradiance_factor,
             "annual_solar_access_matrix": res.annual_solar_access_matrix.tolist(),
             "filtered_solar_access_matrix": res.filtered_solar_access_matrix.tolist()
         }

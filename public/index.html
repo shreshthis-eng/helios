@@ -81,7 +81,8 @@
         <div style="display:flex; justify-content:space-between; font-size:11px; margin:2px 0;"><span>Solar Elevation (&gamma;):</span> <strong id="sunElevReadout" style="color:#facc15;">65.2°</strong></div>
         <div style="display:flex; justify-content:space-between; font-size:11px; margin:2px 0;"><span>Solar Azimuth (&alpha;):</span> <strong id="sunAzReadout" style="color:#facc15;">180.0°</strong></div>
         <div style="display:flex; justify-content:space-between; font-size:11px; margin:2px 0;"><span>Shadow Multiplier:</span> <strong id="shadowLenReadout" style="color:#38bdf8;">1.25 m</strong></div>
-        <div style="display:flex; justify-content:space-between; font-size:11px; margin:2px 0;"><span>Shading Factor:</span> <strong id="shadingFactorReadout" style="color:#4ade80;">85.0% Unshaded</strong></div>
+        <div style="display:flex; justify-content:space-between; font-size:11px; margin:2px 0;"><span>Shading Factor (S<sub>f</sub>):</span> <strong id="shadingFactorReadout" style="color:#4ade80;">85.0% Unshaded</strong></div>
+        <div style="display:flex; justify-content:space-between; font-size:11px; margin:2px 0;"><span>Effective Irradiance:</span> <strong id="effIrradianceReadout" style="color:#38bdf8;">1,242.7 kWh/m²/yr</strong></div>
       </div>
 
       <div style="margin-top:10px; text-align:center;">
@@ -203,6 +204,20 @@
       usable_area: { label: 'Usable Rooftop Area (AI)', unit: 'm²', value: f => Number(f.properties.usable_area_m2) || toUsableRoof(f).properties.usable_roof_area_m2, note: 'Calculated using 4-Stage AI Rooftop Engineering Pipeline (deducting headroom, water tanks, resident access reserves).' },
       capacity_kwp: { label: 'Installed Solar Capacity (AI)', unit: 'kWp', value: f => Number(f.properties.capacity_kwp) || roundVal(toUsableRoof(f).properties.usable_roof_area_m2 * 0.16), note: 'Calculated via code-aware 540W Mono-PERC row packing optimizer.' },
       solar_access: { label: 'Annual Solar Access (3D Ray-Tracing)', unit: '%', value: f => Number(f.properties.annual_solar_access_pct) || 85.0, note: '3D sun vector ray-tracing across daylight hours for Kharghar lat/lon.' },
+      irradiance: {
+        label: 'Effective Solar Irradiance (3D Shaded)',
+        unit: 'kWh/m²/yr',
+        value: f => {
+          const sf = Number(f.properties.shading_factor) || (Number(f.properties.annual_solar_access_pct) ? f.properties.annual_solar_access_pct / 100.0 : 0.85);
+          return Math.round(1700.0 * sf * 0.86 * 10) / 10;
+        },
+        note: 'Research Formula: Baseline GHI (1700 kWh/m²/yr) × Derived 3D Physics Shading Factor (Sf) × 0.86 (MDPI Energies Thermal Derating).',
+        sources: [
+          ['Sengupta et al. (2018) - NREL NSRDB Satellite Irradiance Dataset', 'https://registry.opendata.aws/nrel-pds-nsrdb/'],
+          ['Hofierka & Zlocha (2012) - 3D City Vector Solar Radiation Model', 'https://ui.adsabs.harvard.edu/abs/2012TrGIS..16..681H/abstract'],
+          ['MDPI Energies (2026) - Thermal Derating in Coastal Tropics', 'https://www.mdpi.com/1996-1073/19/2/318']
+        ]
+      },
       height: { label: 'Building Height', unit: 'm', value: f => Number(f.properties.building_height_m) || Number(f.properties.height_m) || 15.0 }
     };
     function roundVal(v) { return Math.round(v * 10) / 10; }
@@ -507,6 +522,12 @@
       const readout = document.getElementById('shadingFactorReadout');
       readout.textContent = `${factor}% Unshaded`;
       readout.style.color = factor >= 80 ? '#4ade80' : '#f87171';
+
+      // Derived Effective Irradiance Factor (Sengupta et al. 2018 NREL NSRDB & Hofierka 2012 & MDPI 2026)
+      const sf = factor / 100.0;
+      const effIrradiance = Math.round(1700.0 * sf * 0.86 * 10) / 10;
+      const effReadout = document.getElementById('effIrradianceReadout');
+      if (effReadout) effReadout.textContent = `${effIrradiance.toLocaleString()} kWh/m²/yr`;
 
       // 3D SUN SIMULATION DIRECTLY ON THE MAP
       if (window.map) {

@@ -57,6 +57,9 @@ class SolarAccessResult:
     usable_unshaded_area_m2: float
     total_roof_area_m2: float
     shading_factor: float
+    baseline_ghi_kwh_m2_yr: float = 1700.0
+    effective_irradiance_factor: float = 1445.0  # GHI (1700) * Sf
+    net_irradiance_factor: float = 1242.7        # GHI (1700) * Sf * 0.86 (Thermal Derating)
 
 
 class ShadeEngine:
@@ -281,6 +284,13 @@ class ShadeEngine:
         mean_access = round(float(np.mean(annual_solar_access_matrix)), 2)
         shading_factor = round(usable_unshaded_area / max(1.0, total_roof_area), 2)
 
+        # Research Formula: Effective Irradiance Factor (Sengupta et al. 2018 & Hofierka & Zlocha 2012)
+        # GHI_baseline (1700 kWh/m2/yr) * Shading Factor (Sf)
+        baseline_ghi = 1700.0  # Kharghar NREL NSRDB satellite baseline GHI
+        eff_irradiance = round(baseline_ghi * shading_factor, 1)
+        # Net Irradiance incorporating MDPI Energies (2026) 14% thermal/atmospheric derating
+        net_irradiance = round(baseline_ghi * shading_factor * 0.86, 1)
+
         return SolarAccessResult(
             candidate_id=candidate_id,
             latitude=self.latitude,
@@ -295,7 +305,10 @@ class ShadeEngine:
             mean_solar_access_pct=mean_access,
             usable_unshaded_area_m2=usable_unshaded_area,
             total_roof_area_m2=total_roof_area,
-            shading_factor=shading_factor
+            shading_factor=shading_factor,
+            baseline_ghi_kwh_m2_yr=baseline_ghi,
+            effective_irradiance_factor=eff_irradiance,
+            net_irradiance_factor=net_irradiance
         )
 
 
