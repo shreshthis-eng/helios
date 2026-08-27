@@ -50,6 +50,7 @@
       <button id="threeDTab" class="active" role="tab" aria-selected="true">3D viewer</button>
       <button id="selectionTab" role="tab" aria-selected="false">Select region</button>
       <button id="sunSimTab" role="tab" aria-selected="false">Sun &amp; Shading</button>
+      <button id="segTab" role="tab" aria-selected="false">AI Segmentation</button>
     </div>
     <section id="threeDControls">
     <label for="pitch">Camera pitch <output id="pitchValue">55°</output></label>
@@ -94,6 +95,34 @@
         </div>
       </div>
       <button id="runFullYearSim" style="width:100%; margin-top:10px; background:#0284c7; color:#fff; font-weight:600;">Run 365-Day Ray Tracing</button>
+    </section>
+
+    <section id="segControls" hidden>
+      <div class="legend" style="color:#22c55e; font-weight:600; margin-bottom:8px;">🧠 PyTorch SegFormer / DeepLabV3+ Rooftop Model</div>
+      <p style="margin:4px 0 10px; font-size:11px;">Fine-tuned semantic segmentation classifying optical satellite RGB imagery into clear roof surfaces and structural non-usable rooftop obstructions.</p>
+      
+      <div style="margin-top:10px; padding:10px; border:1px solid #10b981; border-radius:8px; background:#064e3b33;">
+        <div style="font-weight:600; color:#34d399; font-size:11px; margin-bottom:6px;">Multi-Class Feature Key</div>
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:6px; font-size:11px;">
+          <div style="display:flex; align-items:center; gap:6px;"><span style="display:inline-block; width:10px; height:10px; background:#22c55e; border-radius:2px;"></span> Clear Roof</div>
+          <div style="display:flex; align-items:center; gap:6px;"><span style="display:inline-block; width:10px; height:10px; background:#f43f5e; border-radius:2px;"></span> Stairwell</div>
+          <div style="display:flex; align-items:center; gap:6px;"><span style="display:inline-block; width:10px; height:10px; background:#3b82f6; border-radius:2px;"></span> Water Tanks</div>
+          <div style="display:flex; align-items:center; gap:6px;"><span style="display:inline-block; width:10px; height:10px; background:#94a3b8; border-radius:2px;"></span> HVAC Units</div>
+          <div style="display:flex; align-items:center; gap:6px;"><span style="display:inline-block; width:10px; height:10px; background:#10b981; border-radius:2px;"></span> Vegetation</div>
+          <div style="display:flex; align-items:center; gap:6px;"><span style="display:inline-block; width:10px; height:10px; background:#475569; border-radius:2px;"></span> Background</div>
+        </div>
+      </div>
+
+      <div style="margin-top:12px; padding:10px; border:1px solid #334155; border-radius:8px; background:#0f172a;">
+        <div style="font-weight:600; color:#38bdf8; font-size:11px; margin-bottom:4px;">Vector Polygon Post-Processing</div>
+        <div style="font-size:11px; color:#cbd5e1;">OpenCV <code>findContours</code> + Shapely polygon simplification export.</div>
+        <button id="toggleSegmentationLayer" style="width:100%; margin-top:8px; background:#059669; color:#fff; font-weight:600;">Load AI Rooftop Polygons</button>
+      </div>
+
+      <div id="segmentationDetails" style="margin-top:12px; padding:10px; border:1px solid #334155; border-radius:8px; background:#1e293b; font-size:11px;">
+        <strong style="color:#facc15;">Selected Rooftop AI Breakdown:</strong>
+        <div id="segDetailContent" style="margin-top:6px; line-height:1.5; color:#cbd5e1;">Click any candidate building to inspect pixel classification and Shapely polygons.</div>
+      </div>
     </section>
   </aside>
   <button id="showControls" class="controls-panel-toggle" aria-label="Show Helios controls" hidden>Show controls</button>
@@ -148,6 +177,28 @@
           'fill-extrusion-base': 0, 'fill-extrusion-opacity': 0.9, 'fill-extrusion-vertical-gradient': true
         }
       }, firstSymbol && firstSymbol.id);
+      // Register cross-hatch pattern for usable rooftop polygons
+      function createCrossHatchPattern(color = '#38bdf8') {
+        const canvas = document.createElement('canvas');
+        canvas.width = 16;
+        canvas.height = 16;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = 'rgba(14, 165, 233, 0.2)';
+        ctx.fillRect(0, 0, 16, 16);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(0, 0); ctx.lineTo(16, 16);
+        ctx.moveTo(-4, 4); ctx.lineTo(4, -4);
+        ctx.moveTo(12, 20); ctx.lineTo(20, 12);
+        ctx.moveTo(16, 0); ctx.lineTo(0, 16);
+        ctx.moveTo(20, 4); ctx.lineTo(4, 20);
+        ctx.moveTo(4, -4); ctx.lineTo(-4, 4);
+        ctx.stroke();
+        return ctx.getImageData(0, 0, 16, 16);
+      }
+      try { map.addImage('cross-hatch-pattern', createCrossHatchPattern('#38bdf8')); } catch(e) {}
+
       if (location.protocol !== 'file:') {
         map.addSource('local-buildings-3d', { type: 'geojson', data: './data/osm_buildings_3d.geojson' });
         map.addLayer({
@@ -162,6 +213,18 @@
         }, firstSymbol && firstSymbol.id);
         map.addSource('usable-roofs-3d', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
         map.addLayer({ id: 'usable-roofs-3d', source: 'usable-roofs-3d', type: 'fill-extrusion', paint: { 'fill-extrusion-color': ['case', ['has', 'analysis_score'], ['interpolate', ['linear'], ['get', 'analysis_score'], 0, '#fecaca', 0.25, '#fdba74', 0.5, '#f97316', 0.75, '#dc2626', 1, '#7f1d1d'], '#0ea5e9'], 'fill-extrusion-height': ['+', ['get', 'roof_height_m'], 0.42], 'fill-extrusion-base': ['+', ['get', 'roof_height_m'], 0.10], 'fill-extrusion-opacity': 0.98 } }, firstSymbol && firstSymbol.id);
+        
+        // Add Cross-Hatch Pattern Fill Layer for Usable Rooftop Surface
+        map.addLayer({
+          id: 'usable-roofs-crosshatch',
+          source: 'usable-roofs-3d',
+          type: 'fill',
+          paint: {
+            'fill-pattern': 'cross-hatch-pattern',
+            'fill-opacity': 0.85
+          }
+        });
+
         map.addSource('analysis-highlight', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
         map.addLayer({ id: 'analysis-highlight', source: 'analysis-highlight', type: 'line', paint: { 'line-color': '#facc15', 'line-width': 5, 'line-opacity': 1 } });
         fetch('/api/candidates').then(res => res.json()).then(data => {
@@ -179,6 +242,16 @@
       map.addSource('aoi-3d', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
       map.addLayer({ id: 'aoi-3d-fill', type: 'fill', source: 'aoi-3d', paint: { 'fill-color': '#fef3c7', 'fill-opacity': 0.42 } });
       map.addLayer({ id: 'aoi-3d-line', type: 'line', source: 'aoi-3d', paint: { 'line-color': '#f59e0b', 'line-width': 3, 'line-opacity': 0.9 } });
+      
+      // Satellite tile calculator helper function
+      function getSatTileUrl(lng, lat, zoom = 18) {
+        const n = Math.pow(2, zoom);
+        const xtile = Math.floor((lng + 180) / 360 * n);
+        const latRad = lat * Math.PI / 180;
+        const ytile = Math.floor((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n);
+        return `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${zoom}/${ytile}/${xtile}`;
+      }
+
       map.on('click', 'osm-buildings', (event) => {
         const p = event.features[0].properties;
         new maplibregl.Popup().setLngLat(event.lngLat).setHTML(`<strong>OpenStreetMap building</strong><br>height: ${p.render_height || 'not tagged'} m<br>base: ${p.render_min_height || 0} m`).addTo(map);
@@ -188,7 +261,21 @@
       map.on('mouseenter', 'usable-roofs-3d', event => {
         const p = event.features[0].properties;
         map.getCanvas().style.cursor = 'pointer';
-        new maplibregl.Popup({ closeButton: false, closeOnClick: false }).setLngLat(event.lngLat).setHTML(`<strong>Helios AI Rooftop Engineering</strong><br>Candidate: ${p.candidate_id || 'Kharghar Building'}<br>Clear Area: ${p.clear_area_m2 || p.usable_area_m2 || 0} m²<br>Installable Area: ${p.usable_area_m2 || 0} m²<br>AI Panels: ${p.panel_count || 0} modules<br>Capacity: ${p.capacity_kwp || 0} kWp<br>Solar Access: ${p.annual_solar_access_pct || 85}%`).addTo(map);
+        const satUrl = getSatTileUrl(event.lngLat.lng, event.lngLat.lat, 18);
+        new maplibregl.Popup({ closeButton: false, closeOnClick: false }).setLngLat(event.lngLat).setHTML(`
+          <div style="font-family:Inter,sans-serif; width:220px;">
+            <strong style="color:#0284c7;">Helios AI Rooftop Engineering</strong><br>
+            <div style="margin-top:4px; margin-bottom:6px; border-radius:4px; overflow:hidden; border:1px solid #cbd5e1;">
+              <img src="${satUrl}" style="width:100%; height:90px; object-fit:cover; display:block;" alt="Rooftop Satellite Photo" />
+            </div>
+            <b>ID:</b> ${p.candidate_id || 'Kharghar Rooftop'}<br>
+            <b>Clear Area:</b> ${p.clear_area_m2 || p.usable_area_m2 || 0} m²<br>
+            <b>Installable (Cross-Hatched):</b> <span style="color:#0284c7; font-weight:700;">${p.usable_area_m2 || 0} m²</span><br>
+            <b>AI Panels:</b> ${p.panel_count || 0} modules<br>
+            <b>Capacity:</b> ${p.capacity_kwp || 0} kWp<br>
+            <b>Solar Access:</b> ${p.annual_solar_access_pct || 85}%
+          </div>
+        `).addTo(map);
       });
       map.on('mouseleave', 'usable-roofs-3d', () => { map.getCanvas().style.cursor = ''; document.querySelectorAll('.maplibregl-popup').forEach(popup => popup.remove()); });
     });
@@ -429,9 +516,42 @@
       // A small geographic tolerance makes the first visible vertex easy to click.
       return Math.abs(a[0] - b[0]) < 0.00018 && Math.abs(a[1] - b[1]) < 0.00018;
     }
-    document.getElementById('threeDTab').addEventListener('click', () => { document.getElementById('threeDTab').classList.add('active'); document.getElementById('selectionTab').classList.remove('active'); document.getElementById('sunSimTab').classList.remove('active'); document.getElementById('threeDControls').hidden = false; document.getElementById('selectionControls').hidden = true; document.getElementById('sunSimControls').hidden = true; document.getElementById('map').classList.add('active'); document.getElementById('selectionMap').classList.remove('active'); map.resize(); apply3DSelection(selectionFeature); });
-    document.getElementById('selectionTab').addEventListener('click', () => { document.getElementById('selectionTab').classList.add('active'); document.getElementById('threeDTab').classList.remove('active'); document.getElementById('sunSimTab').classList.remove('active'); document.getElementById('threeDControls').hidden = true; document.getElementById('selectionControls').hidden = false; document.getElementById('sunSimControls').hidden = true; document.getElementById('map').classList.remove('active'); document.getElementById('selectionMap').classList.add('active'); initSelectionMap(); });
-    document.getElementById('sunSimTab').addEventListener('click', () => { document.getElementById('sunSimTab').classList.add('active'); document.getElementById('threeDTab').classList.remove('active'); document.getElementById('selectionTab').classList.remove('active'); document.getElementById('threeDControls').hidden = true; document.getElementById('selectionControls').hidden = true; document.getElementById('sunSimControls').hidden = false; updateSunShadingSimulation(); });
+    document.getElementById('threeDTab').addEventListener('click', () => { document.getElementById('threeDTab').classList.add('active'); document.getElementById('selectionTab').classList.remove('active'); document.getElementById('sunSimTab').classList.remove('active'); document.getElementById('segTab').classList.remove('active'); document.getElementById('threeDControls').hidden = false; document.getElementById('selectionControls').hidden = true; document.getElementById('sunSimControls').hidden = true; document.getElementById('segControls').hidden = true; document.getElementById('map').classList.add('active'); document.getElementById('selectionMap').classList.remove('active'); map.resize(); apply3DSelection(selectionFeature); });
+    document.getElementById('selectionTab').addEventListener('click', () => { document.getElementById('selectionTab').classList.add('active'); document.getElementById('threeDTab').classList.remove('active'); document.getElementById('sunSimTab').classList.remove('active'); document.getElementById('segTab').classList.remove('active'); document.getElementById('threeDControls').hidden = true; document.getElementById('selectionControls').hidden = false; document.getElementById('sunSimControls').hidden = true; document.getElementById('segControls').hidden = true; document.getElementById('map').classList.remove('active'); document.getElementById('selectionMap').classList.add('active'); initSelectionMap(); });
+    document.getElementById('sunSimTab').addEventListener('click', () => { document.getElementById('sunSimTab').classList.add('active'); document.getElementById('threeDTab').classList.remove('active'); document.getElementById('selectionTab').classList.remove('active'); document.getElementById('segTab').classList.remove('active'); document.getElementById('threeDControls').hidden = true; document.getElementById('selectionControls').hidden = true; document.getElementById('sunSimControls').hidden = false; document.getElementById('segControls').hidden = true; updateSunShadingSimulation(); });
+    document.getElementById('segTab').addEventListener('click', () => { document.getElementById('segTab').classList.add('active'); document.getElementById('threeDTab').classList.remove('active'); document.getElementById('selectionTab').classList.remove('active'); document.getElementById('sunSimTab').classList.remove('active'); document.getElementById('threeDControls').hidden = true; document.getElementById('selectionControls').hidden = true; document.getElementById('sunSimControls').hidden = true; document.getElementById('segControls').hidden = false; document.getElementById('map').classList.add('active'); document.getElementById('selectionMap').classList.remove('active'); map.resize(); loadSegmentationPolygons(); });
+
+    document.getElementById('toggleSegmentationLayer')?.addEventListener('click', loadSegmentationPolygons);
+
+    function loadSegmentationPolygons() {
+      fetch('/api/segmentation')
+        .then(res => res.json())
+        .then(data => renderSegmentationData(data))
+        .catch(err => {
+          fetch('./segmentation_output.json')
+            .then(res => res.json())
+            .then(data => renderSegmentationData(data))
+            .catch(() => {});
+        });
+    }
+
+    function renderSegmentationData(data) {
+      const details = document.getElementById('segDetailContent');
+      if (!data || !data.results || !data.results.length) {
+        if (details) details.innerHTML = "No segmentation predictions found.";
+        return;
+      }
+      const res0 = data.results[0];
+      const breakdown = res0.segmentation_polygons.metadata.area_breakdown_m2 || {};
+      let html = `<strong style="color:#38bdf8;">Candidate ${res0.candidate_id} (${res0.footprint_area_m2} m²)</strong><br>`;
+      html += `<div style="display:flex; justify-content:space-between; margin-top:4px;"><span>🟢 Clear Usable Roof:</span><strong>${breakdown.clear_roof || 0} m²</strong></div>`;
+      html += `<div style="display:flex; justify-content:space-between;"><span>🔴 Stairwell Headroom:</span><strong>${breakdown.staircase_headroom || 0} m²</strong></div>`;
+      html += `<div style="display:flex; justify-content:space-between;"><span>🔵 Water Tanks:</span><strong>${breakdown.water_tank || 0} m²</strong></div>`;
+      html += `<div style="display:flex; justify-content:space-between;"><span>⚙️ HVAC Equipment:</span><strong>${breakdown.hvac_unit || 0} m²</strong></div>`;
+      html += `<div style="display:flex; justify-content:space-between;"><span>🌿 Roof Garden / Veg:</span><strong>${breakdown.vegetation || 0} m²</strong></div>`;
+      html += `<div style="margin-top:6px; font-size:10px; color:#94a3b8;">Model: ${data.model_architecture}<br>Dataset: ${data.dataset}<br>Shapely Polygons: ${res0.segmentation_polygons.features.length} vector features converted via OpenCV findContours.</div>`;
+      if (details) details.innerHTML = html;
+    }
 
     // Solar Physics & Real-Time Rooftop Shading Canvas Renderer
     function computeSolarPosition(month, hour, lat = 19.0307) {
