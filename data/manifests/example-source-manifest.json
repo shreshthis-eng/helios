@@ -1,0 +1,15 @@
+{
+  "source_id": "nasa-power-demo",
+  "title": "NASA POWER solar and meteorological data",
+  "provider": "NASA POWER",
+  "citation_url": "https://power.larc.nasa.gov/",
+  "license_name": "NASA data and information policy; verify attribution for release",
+  "license_url": "https://www.nasa.gov/nasa-brand-center/images-and-media/",
+  "retrieved_at": "2026-08-21T00:00:00Z",
+  "version": "API response date plus request parameters",
+  "temporal_type": "climatology",
+  "valid_from": null,
+  "valid_to": null,
+  "spatial_resolution_m": null,
+  "notes": "Example only. Record exact parameters, date range, checksum and returned metadata."
+}

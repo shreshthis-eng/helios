@@ -28,14 +28,61 @@ KHARGHAR_BBOX = {
 }
 
 class Person1GISEngineer:
-    def __init__(self, raw_csv_path: str = "kharghar_raw_buildings.csv", sample_geojson_path: str = "sample_buildings.geojson"):
+    def __init__(self, raw_csv_path: str = "kharghar_raw_buildings.csv", sample_geojson_path: str = "data/sample/source_layers/candidate_buildings.geojson"):
         self.raw_csv_path = raw_csv_path
         self.sample_geojson_path = sample_geojson_path
 
     def load_raw_candidates(self, limit: int = 1000) -> List[CandidateBuildingP1]:
         candidates = []
         
-        # 1. Try loading from extracted Kharghar CSV if available
+        # 1. Try loading from official team candidate_buildings.geojson if present
+        if os.path.exists(self.sample_geojson_path):
+            with open(self.sample_geojson_path, 'r') as f:
+                data = json.load(f)
+            features = data.get("features", [])
+            if limit:
+                features = features[:limit]
+            for idx, feat in enumerate(features):
+                props = feat.get("properties", {})
+                cand_id = props.get("candidate_id", f"KHAR_{idx+1:06d}")
+                geom_type = feat.get("geometry", {}).get("type", "Polygon")
+                coords = feat.get("geometry", {}).get("coordinates", [])
+                
+                lat = props.get("latitude", 19.0307)
+                lon = props.get("longitude", 73.0652)
+                area = float(props.get("footprint_area_m2", props.get("area_m2", 450.0)))
+                reported_height = float(props.get("reported_height_m", props.get("building_height_m", 15.0)))
+                dem_elev = float(props.get("dem_elevation_m", props.get("terrain_elevation_m", 18.0)))
+                
+                geom_wkt = ""
+                if coords and geom_type == "Polygon":
+                    try:
+                        poly = Polygon(coords[0])
+                        lat = poly.centroid.y
+                        lon = poly.centroid.x
+                        geom_wkt = poly.wkt
+                        if area <= 0:
+                            area = round(poly.area * 1e10, 1)
+                    except Exception:
+                        pass
+                
+                candidates.append(CandidateBuildingP1(
+                    candidate_id=cand_id,
+                    latitude=lat,
+                    longitude=lon,
+                    footprint_area_m2=max(10.0, area),
+                    reported_height_m=reported_height,
+                    height_confidence=props.get("height_confidence", 0.85),
+                    dem_elevation_m=dem_elev,
+                    road_layer_available=True,
+                    power_layer_available=True,
+                    source_ids=["GOBS", "OSM", "RIChennacht_Repo"],
+                    geometry_wkt=geom_wkt
+                ))
+            if len(candidates) > 0:
+                return candidates
+
+        # 2. Try loading from extracted Kharghar CSV if available
         if os.path.exists(self.raw_csv_path):
             df = pd.read_csv(self.raw_csv_path)
             if limit:
@@ -48,9 +95,7 @@ class Person1GISEngineer:
                 area = float(row.get('area_in_meters', 250.0))
                 geom_str = str(row.get('geometry', ''))
                 
-                # Height heuristic or confidence
                 conf = float(row.get('confidence', 0.8))
-                # Height proxy based on area/confidence or default
                 reported_height = round(8.0 + (area % 25) * 0.8, 1)
                 dem_elev = round(12.0 + (lat - 19.01) * 300, 1)
                 
@@ -68,11 +113,6 @@ class Person1GISEngineer:
                     geometry_wkt=geom_str
                 ))
             return candidates
-
-        # 2. Fallback to sample geojson or synthetic Kharghar data
-        if os.path.exists(self.sample_geojson_path):
-            with open(self.sample_geojson_path, 'r') as f:
-                data = json.load(f)
             for idx, feat in enumerate(data.get("features", [])):
                 props = feat.get("properties", {})
                 cand_id = props.get("candidate_id", f"KHAR_{idx+1:06d}")

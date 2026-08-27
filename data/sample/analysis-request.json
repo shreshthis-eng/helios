@@ -1,0 +1,45 @@
+{
+  "contract_version": "v1",
+  "region_name": "Demo Ward",
+  "aoi_geojson": {
+    "type": "Polygon",
+    "coordinates": [[[72.8, 19.1], [72.81, 19.1], [72.81, 19.11], [72.8, 19.1]]]
+  },
+  "reference_date": "2026-08-21",
+  "scenario": {
+    "name": "balanced",
+    "minimum_usable_area_m2": 40,
+    "maximum_grid_distance_m": 2000
+  },
+  "weights": {
+    "generation": 0.3,
+    "physical": 0.25,
+    "grid": 0.2,
+    "economics": 0.2,
+    "confidence": 0.05
+  },
+  "sources": [],
+  "candidates": [
+    {
+      "candidate_id": "roof-a",
+      "name": "Demo rooftop",
+      "geometry": {"type": "Point", "coordinates": [72.805, 19.105]},
+      "metrics": {
+        "annual_yield_kwh": 25000,
+        "usable_area_m2": 180,
+        "shading_factor": 0.88,
+        "grid_distance_m": 320,
+        "estimated_cost_inr": 900000,
+        "estimated_rent_inr_month": 12000,
+        "provenance_ids": ["nasa-power-demo"]
+      },
+      "normalized": {
+        "generation": 0.91,
+        "physical": 0.86,
+        "grid": 0.78,
+        "economics": 0.72,
+        "confidence": 0.81
+      }
+    }
+  ]
+}
