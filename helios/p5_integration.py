@@ -145,6 +145,13 @@ class Person5PlatformEngineer:
                 "properties": {
                     "candidate_id": cid,
                     "usable_area_m2": p2.get("usable_area_m2", 0),
+                    "clear_area_m2": p2.get("clear_area_m2", 0),
+                    "obstruction_area_m2": p2.get("obstruction_area_m2", 0),
+                    "roof_type": p2.get("roof_type", "FLAT"),
+                    "slope_deg": p2.get("slope_deg", 0),
+                    "annual_solar_access_pct": p2.get("annual_solar_access_pct", 85.0),
+                    "panel_count": p2.get("panel_count", 0),
+                    "layout_efficiency_pct": p2.get("layout_efficiency_pct", 0),
                     "capacity_kwp": p3.get("estimated_capacity_kwp", 0),
                     "annual_yield_kwh": p3.get("annual_yield_kwh", 0),
                     "payback_years": p3.get("indicative_payback_years", 0),

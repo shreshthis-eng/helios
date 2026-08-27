@@ -40,7 +40,18 @@ class TestHeliosPipeline(unittest.TestCase):
         sp = p2.process_candidate(c1)
         self.assertEqual(sp.candidate_id, "KHAR_TEST01")
         self.assertGreater(sp.footprint_area_m2, 0)
-        self.assertAlmostEqual(sp.usable_area_m2, sp.footprint_area_m2 * 0.70, places=1)
+        self.assertGreater(sp.usable_area_m2, 0)
+        self.assertGreater(sp.panel_count, 0)
+
+    def test_ai_rooftop_pipeline(self):
+        from helios.ai_pipeline.pipeline import AIRooftopEngineeringPipeline
+        pipeline = AIRooftopEngineeringPipeline(resident_reserve_pct=0.15)
+        res = pipeline.analyze_rooftop(candidate_id="KHAR_000100", footprint_area_m2=600.0, building_height_m=22.0)
+        self.assertEqual(res.candidate_id, "KHAR_000100")
+        self.assertGreater(res.clear_area_m2, 0)
+        self.assertGreater(res.panel_count, 0)
+        self.assertGreater(res.installed_capacity_kwp, 0)
+        self.assertIn("clear_area_m2", res.stage1_segmentation)
 
     def test_person3_solar_economics(self):
         sp = SpatialFeaturesP2(

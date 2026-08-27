@@ -33,6 +33,13 @@ class SpatialFeaturesP2:
     spatial_confidence: float
     perimeter_m: float = 0.0
     rooftop_elevation_m: float = 0.0
+    clear_area_m2: float = 0.0
+    obstruction_area_m2: float = 0.0
+    roof_type: str = "FLAT"
+    slope_deg: float = 0.0
+    annual_solar_access_pct: float = 85.0
+    panel_count: int = 0
+    layout_efficiency_pct: float = 0.0
 
 @dataclass
 class SolarEconomicsP3:

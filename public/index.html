@@ -456,11 +456,15 @@
                         <span class="rank-badge">#${props.rank}</span>
                     </div>
                     <div class="metric-row">
-                        <span>Roof Area: <span class="metric-val">${props.usable_area_m2} m²</span></span>
+                        <span>Installable Area: <span class="metric-val">${props.usable_area_m2} m²</span></span>
                         <span>Capacity: <span class="metric-val">${props.capacity_kwp} kWp</span></span>
                     </div>
                     <div class="metric-row">
-                        <span>Est. Yield: <span class="metric-val">${(props.annual_yield_kwh / 1000).toFixed(1)} MWh</span></span>
+                        <span>AI Panels Count: <span class="metric-val">${props.panel_count || 0} modules</span></span>
+                        <span>Roof Plane: <span class="metric-val">${props.roof_type || 'FLAT'} (${props.slope_deg || 0}°)</span></span>
+                    </div>
+                    <div class="metric-row">
+                        <span>Solar Access: <span class="metric-val">${props.annual_solar_access_pct || 85}% sun</span></span>
                         <span>Payback: <span class="metric-val">${props.payback_years} yrs</span></span>
                     </div>
                     <div style="margin-top: 6px;">

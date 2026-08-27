@@ -20,16 +20,18 @@ from shapely.geometry import Point, Polygon
 from scipy.spatial import cKDTree
 
 from helios.contracts.models import CandidateBuildingP1, SpatialFeaturesP2
+from helios.ai_pipeline.pipeline import AIRooftopEngineeringPipeline
 
 class Person2SpatialEngineer:
-    def __init__(self, usable_ratio: float = 0.70):
+    def __init__(self, usable_ratio: float = 0.70, resident_reserve_pct: float = 0.15):
         self.usable_ratio = usable_ratio
+        self.ai_pipeline = AIRooftopEngineeringPipeline(resident_reserve_pct=resident_reserve_pct)
 
     def process_candidate(self, cand: CandidateBuildingP1) -> SpatialFeaturesP2:
-        # Footprint area
+        # Footprint area calculation in metric CRS EPSG:32643
         footprint_area = cand.footprint_area_m2
-        
         perimeter = round(4.0 * math.sqrt(footprint_area), 2)
+        
         if cand.geometry_wkt:
             try:
                 geom = wkt.loads(cand.geometry_wkt)
@@ -44,43 +46,46 @@ class Person2SpatialEngineer:
             except Exception:
                 pass
                 
-        usable_area = round(footprint_area * self.usable_ratio, 2)
         height = cand.reported_height_m if cand.reported_height_m is not None else 10.0
         terrain = cand.dem_elevation_m if cand.dem_elevation_m is not None else 15.0
         rooftop_elev = round(height + terrain, 2)
+
+        # Run AI-Assisted Rooftop Engineering Pipeline (Stages 1 -> 2 -> 3 -> 4)
+        ai_res = self.ai_pipeline.analyze_rooftop(
+            candidate_id=cand.candidate_id,
+            footprint_area_m2=footprint_area,
+            building_height_m=height
+        )
         
         # Distance proxies (simulated spatial index query to road & grid)
-        # Unique deterministic variation based on candidate_id hash/coords
         try:
             cand_num = int(''.join(filter(str.isdigit, cand.candidate_id)))
         except ValueError:
             cand_num = abs(hash(cand.candidate_id)) % 10000
         road_dist = round(5.0 + (cand_num * 7) % 45, 1)
         grid_dist = round(15.0 + (cand_num * 19) % 380, 1)
-        
-        # Shading factor calculation (taller buildings get less shade, surrounding terrain)
-        if height > 25.0:
-            shading_factor = round(0.92 - (cand_num % 5) * 0.02, 2)
-        elif height > 15.0:
-            shading_factor = round(0.85 - (cand_num % 5) * 0.02, 2)
-        else:
-            shading_factor = round(0.75 - (cand_num % 5) * 0.03, 2)
-            
-        # Spatial confidence score combining height confidence & spatial completeness
-        spatial_conf = round(min(0.95, max(0.50, cand.height_confidence * 0.9 + 0.1)), 2)
+
+        spatial_conf = round(min(0.95, max(0.50, (cand.height_confidence * 0.5 + ai_res.pipeline_confidence * 0.5))), 2)
 
         return SpatialFeaturesP2(
             candidate_id=cand.candidate_id,
             footprint_area_m2=footprint_area,
-            usable_area_m2=usable_area,
+            usable_area_m2=ai_res.usable_area_m2, # Installable area from AI pipeline
             building_height_m=height,
             terrain_elevation_m=terrain,
             road_distance_m=road_dist,
             grid_distance_m=grid_dist,
-            shading_factor=shading_factor,
+            shading_factor=ai_res.shading_factor, # From 3D solar position shading engine
             spatial_confidence=spatial_conf,
             perimeter_m=perimeter,
-            rooftop_elevation_m=rooftop_elev
+            rooftop_elevation_m=rooftop_elev,
+            clear_area_m2=ai_res.clear_area_m2,
+            obstruction_area_m2=ai_res.obstruction_area_m2,
+            roof_type=ai_res.roof_type,
+            slope_deg=ai_res.slope_deg,
+            annual_solar_access_pct=ai_res.annual_solar_access_pct,
+            panel_count=ai_res.panel_count,
+            layout_efficiency_pct=ai_res.layout_efficiency_pct
         )
 
     def process_batch(self, candidates: List[CandidateBuildingP1]) -> List[SpatialFeaturesP2]:
