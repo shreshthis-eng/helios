@@ -137,14 +137,9 @@
         map.addLayer({ id: 'usable-roofs-3d', source: 'usable-roofs-3d', type: 'fill-extrusion', paint: { 'fill-extrusion-color': ['case', ['has', 'analysis_score'], ['interpolate', ['linear'], ['get', 'analysis_score'], 0, '#fecaca', 0.25, '#fdba74', 0.5, '#f97316', 0.75, '#dc2626', 1, '#7f1d1d'], '#0ea5e9'], 'fill-extrusion-height': ['+', ['get', 'roof_height_m'], 0.42], 'fill-extrusion-base': ['+', ['get', 'roof_height_m'], 0.10], 'fill-extrusion-opacity': 0.98 } }, firstSymbol && firstSymbol.id);
         map.addSource('analysis-highlight', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
         map.addLayer({ id: 'analysis-highlight', source: 'analysis-highlight', type: 'line', paint: { 'line-color': '#facc15', 'line-width': 5, 'line-opacity': 1 } });
-        fetch('/api/candidates').then(res => res.json()).then(data => {
-          all3DBuildings = data;
-          apply3DSelection(selectionFeature);
-        }).catch(() => {
-          fetch('./data/osm_buildings_3d.geojson').then(response => response.json()).then(data => { all3DBuildings = data; apply3DSelection(selectionFeature); }).catch(() => {});
-        });
+        fetch('./data/osm_buildings_3d.geojson').then(response => response.json()).then(data => { all3DBuildings = data; apply3DSelection(selectionFeature); }).catch(() => {});
         map.setLayoutProperty('osm-buildings', 'visibility', 'visible');
-        map.addSource('person1', { type: 'geojson', data: '/api/candidates' });
+        map.addSource('person1', { type: 'geojson', data: './data/candidate_buildings.geojson' });
         map.addLayer({ id: 'person1-footprints', type: 'line', source: 'person1', paint: { 'line-color': '#fbbf24', 'line-width': 2, 'line-opacity': 0.95 } });
       }
       map.addSource('aoi-3d', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
@@ -159,9 +154,11 @@
       map.on('mouseenter', 'usable-roofs-3d', event => {
         const p = event.features[0].properties;
         map.getCanvas().style.cursor = 'pointer';
-        new maplibregl.Popup({ closeButton: false, closeOnClick: false }).setLngLat(event.lngLat).setHTML(`<strong>Helios AI Rooftop Engineering</strong><br>Candidate: ${p.candidate_id || 'Kharghar Building'}<br>Clear Area: ${p.clear_area_m2 || p.usable_area_m2 || 0} m²<br>Installable Area: ${p.usable_area_m2 || 0} m²<br>AI Panels: ${p.panel_count || 0} modules<br>Capacity: ${p.capacity_kwp || 0} kWp<br>Solar Access: ${p.annual_solar_access_pct || 85}%`).addTo(map);
+        new maplibregl.Popup({ closeButton: false, closeOnClick: false }).setLngLat(event.lngLat).setHTML(`<strong>Solar rooftop</strong><br>roof area: ${p.roof_area_m2} m²<br>usable rooftop area: ${p.usable_roof_area_m2} m²<br>usable estimate: ${Math.round(USABLE_ROOF_FRACTION * 100)}%`).addTo(map);
       });
       map.on('mouseleave', 'usable-roofs-3d', () => { map.getCanvas().style.cursor = ''; document.querySelectorAll('.maplibregl-popup').forEach(popup => popup.remove()); });
+      // GeoLibre's MapLibre 3D-Tiles integration. A failed optional layer must
+      // never prevent the core selector, rankings, or local buildings from booting.
     });
     let selectionMap;
     let selectionMode = null;
@@ -170,14 +167,13 @@
     let all3DBuildings = null;
     let selectedAnalysis = null;
     const USABLE_ROOF_FRACTION = 0.70;
-
+    // Add a factor here when a new model/data product becomes available.
     const ANALYSIS_FACTORS = {
-      usable_area: { label: 'Usable Rooftop Area (AI)', unit: 'm²', value: f => Number(f.properties.usable_area_m2) || toUsableRoof(f).properties.usable_roof_area_m2, note: 'Calculated using 4-Stage AI Rooftop Engineering Pipeline (deducting headroom, water tanks, resident access reserves).' },
-      capacity_kwp: { label: 'Installed Solar Capacity (AI)', unit: 'kWp', value: f => Number(f.properties.capacity_kwp) || roundVal(toUsableRoof(f).properties.usable_roof_area_m2 * 0.16), note: 'Calculated via code-aware 540W Mono-PERC row packing optimizer.' },
-      solar_access: { label: 'Annual Solar Access (3D Ray-Tracing)', unit: '%', value: f => Number(f.properties.annual_solar_access_pct) || 85.0, note: '3D sun vector ray-tracing across daylight hours for Kharghar lat/lon.' },
-      height: { label: 'Building Height', unit: 'm', value: f => Number(f.properties.building_height_m) || Number(f.properties.height_m) || 15.0 }
+      height: { label: 'Building height', unit: 'm', value: f => Number(f.properties.height_m) || 0 },
+      usable_area: { label: 'Usable rooftop area', unit: 'm²', value: f => toUsableRoof(f).properties.usable_roof_area_m2 },
+      irradiance: { label: 'Irradiance', unit: 'kWh/m²/year', value: f => 1450 - ((Number(f.properties.height_m) || 6) * 1.5), note: 'Current sample is a transparent proxy; connect the irradiance model output here.', parameters: 'Solar irradiance baseline, roof height as a simple obstruction proxy; the production model should add weather, temperature, humidity, wind, rain, pressure, orientation, slope, and shading.', sources: [['Weather-parameter PV output ML paper', 'https://www.researchgate.net/publication/358007776_Estimation_of_Solar_Panel_Output_based_on_Weather_Parameters_using_Machine_Learning_Algorithms'], ['PV forecasting research topic', 'https://www.frontiersin.org/research-topics/45695/solar-radiation-and-photovoltaic-system-forecasting/magazine'], ['PV output and irradiance measurement guidance', 'https://www.anernstore.com/blogs/diy-solar-guides/measure-panel-output-irradiance']] },
+      yield: { label: 'Annual solar yield', unit: 'kWh/year', value: f => toUsableRoof(f).properties.usable_roof_area_m2 * 0.18 * 1400, note: 'Current sample is a transparent proxy; connect the yield model output here.', parameters: 'Usable rooftop area × assumed module efficiency × annual irradiance; replace with the PV calculator/ML output for final scoring.', sources: [['Weather-parameter PV output ML paper', 'https://www.researchgate.net/publication/358007776_Estimation_of_Solar_Panel_Output_based_on_Weather_Parameters_using_Machine_Learning_Algorithms'], ['PV forecasting research topic', 'https://www.frontiersin.org/research-topics/45695/solar-radiation-and-photovoltaic-system-forecasting/magazine'], ['PV output study (ScienceDirect)', 'https://www.sciencedirect.com/science/article/pii/S1877050917319725']] }
     };
-    function roundVal(v) { return Math.round(v * 10) / 10; }
     const selectionStatus = document.getElementById('selectionStatus');
     function showSelectionStatus(text) { selectionStatus.textContent = text; }
     function rectangleFeature(a, b) {
