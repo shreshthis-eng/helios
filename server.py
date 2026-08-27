@@ -38,6 +38,15 @@ class HeliosRequestHandler(BaseHTTPRequestHandler):
             elif path == "/api/summary":
                 self._send_json(self._get_summary())
                 return
+            elif path.startswith("/api/shade_simulation"):
+                params = parse_qs(parsed.query)
+                lat = float(params.get("lat", [19.0307])[0])
+                lon = float(params.get("lon", [73.0652])[0])
+                width = float(params.get("width", [20.0])[0])
+                length = float(params.get("length", [20.0])[0])
+                height = float(params.get("height", [15.0])[0])
+                self._send_json(self._run_shade_simulation(lat, lon, width, length, height))
+                return
             elif path == "/" or path == "/index.html":
                 self._serve_static("public/index.html", "text/html")
                 return
@@ -208,6 +217,30 @@ class HeliosRequestHandler(BaseHTTPRequestHandler):
             "area": "Kharghar, Navi Mumbai",
             "crs": "EPSG:32643 (UTM 43N)",
             "version": "1.0.0"
+        }
+
+    def _run_shade_simulation(self, lat: float, lon: float, width: float, length: float, height: float) -> dict:
+        from shade_engine import ShadeEngine
+        engine = ShadeEngine(latitude=lat, longitude=lon, grid_resolution_m=0.5, min_solar_access_threshold_pct=80.0)
+        res = engine.simulate(
+            candidate_id="KHAR_LIVE_SIM",
+            roof_width_m=width,
+            roof_length_m=length,
+            building_height_m=height
+        )
+        return {
+            "candidate_id": res.candidate_id,
+            "latitude": res.latitude,
+            "longitude": res.longitude,
+            "grid_resolution_m": res.grid_resolution_m,
+            "total_grid_cells": res.total_grid_cells,
+            "unshaded_grid_cells_80pct": res.unshaded_grid_cells_80pct,
+            "mean_solar_access_pct": res.mean_solar_access_pct,
+            "usable_unshaded_area_m2": res.usable_unshaded_area_m2,
+            "total_roof_area_m2": res.total_roof_area_m2,
+            "shading_factor": res.shading_factor,
+            "annual_solar_access_matrix": res.annual_solar_access_matrix.tolist(),
+            "filtered_solar_access_matrix": res.filtered_solar_access_matrix.tolist()
         }
 
 def run_server():

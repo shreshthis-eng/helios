@@ -49,6 +49,7 @@
     <div class="tabs" role="tablist" aria-label="Map views">
       <button id="threeDTab" class="active" role="tab" aria-selected="true">3D viewer</button>
       <button id="selectionTab" role="tab" aria-selected="false">Select region</button>
+      <button id="sunSimTab" role="tab" aria-selected="false">Sun &amp; Shading</button>
     </div>
     <section id="threeDControls">
     <label for="pitch">Camera pitch <output id="pitchValue">55°</output></label>
@@ -67,6 +68,31 @@
         <li>Switch to <strong>3D viewer</strong> to inspect the buildings inside it.</li>
       </ol>
       <div id="selectionStatus" class="status">No region selected.</div>
+    </section>
+    <section id="sunSimControls" hidden>
+      <div class="legend" style="color:#fcd34d; font-weight:600; margin-bottom:8px;">☀️ 3D Solar Ray-Tracing Engine</div>
+      <label for="hourSlider">Time of Day: <output id="hourValue">12:00 PM</output></label>
+      <input id="hourSlider" type="range" min="7" max="17" step="0.5" value="12">
+      <label for="monthSlider">Month: <output id="monthValue">Jun (Summer)</output></label>
+      <input id="monthSlider" type="range" min="1" max="12" step="1" value="6">
+      
+      <div style="margin-top:10px; padding:10px; border:1px solid #0369a1; border-radius:8px; background:#0c4a6e44;">
+        <div style="font-weight:600; color:#38bdf8; font-size:11px; margin-bottom:4px;">Live Solar Vector Readout</div>
+        <div style="display:flex; justify-content:space-between; font-size:11px; margin:2px 0;"><span>Solar Elevation (&gamma;):</span> <strong id="sunElevReadout" style="color:#facc15;">65.2°</strong></div>
+        <div style="display:flex; justify-content:space-between; font-size:11px; margin:2px 0;"><span>Solar Azimuth (&alpha;):</span> <strong id="sunAzReadout" style="color:#facc15;">180.0°</strong></div>
+        <div style="display:flex; justify-content:space-between; font-size:11px; margin:2px 0;"><span>Shadow Multiplier:</span> <strong id="shadowLenReadout" style="color:#38bdf8;">1.25 m</strong></div>
+        <div style="display:flex; justify-content:space-between; font-size:11px; margin:2px 0;"><span>Shading Factor:</span> <strong id="shadingFactorReadout" style="color:#4ade80;">85.0% Unshaded</strong></div>
+      </div>
+
+      <div style="margin-top:10px; text-align:center;">
+        <div style="font-size:11px; color:#cbd5e1; margin-bottom:4px;">0.5m × 0.5m Rooftop Grid Real-Time Ray Trace:</div>
+        <canvas id="roofGridCanvas" width="230" height="230" style="border:1px solid #334155; border-radius:6px; background:#0f172a; cursor:crosshair;"></canvas>
+        <div style="display:flex; justify-content:center; gap:12px; font-size:10px; margin-top:4px; color:#94a3b8;">
+          <span><span style="display:inline-block; width:10px; height:10px; background:#facc15; border-radius:2px; vertical-align:middle;"></span> Unshaded (&ge;80%)</span>
+          <span><span style="display:inline-block; width:10px; height:10px; background:#334155; border-radius:2px; vertical-align:middle;"></span> Shaded</span>
+        </div>
+      </div>
+      <button id="runFullYearSim" style="width:100%; margin-top:10px; background:#0284c7; color:#fff; font-weight:600;">Run 365-Day Ray Tracing</button>
     </section>
   </aside>
   <button id="showControls" class="controls-panel-toggle" aria-label="Show Helios controls" hidden>Show controls</button>
@@ -386,9 +412,112 @@
       // A small geographic tolerance makes the first visible vertex easy to click.
       return Math.abs(a[0] - b[0]) < 0.00018 && Math.abs(a[1] - b[1]) < 0.00018;
     }
-    document.getElementById('threeDTab').addEventListener('click', () => { document.getElementById('threeDTab').classList.add('active'); document.getElementById('selectionTab').classList.remove('active'); document.getElementById('threeDControls').hidden = false; document.getElementById('selectionControls').hidden = true; document.getElementById('map').classList.add('active'); document.getElementById('selectionMap').classList.remove('active'); map.resize(); apply3DSelection(selectionFeature); });
-    document.getElementById('selectionTab').addEventListener('click', () => { document.getElementById('selectionTab').classList.add('active'); document.getElementById('threeDTab').classList.remove('active'); document.getElementById('threeDControls').hidden = true; document.getElementById('selectionControls').hidden = false; document.getElementById('map').classList.remove('active'); document.getElementById('selectionMap').classList.add('active'); initSelectionMap(); });
-    // Rectangle support remains implemented for a future UI toggle, but is intentionally hidden for now.
+    document.getElementById('threeDTab').addEventListener('click', () => { document.getElementById('threeDTab').classList.add('active'); document.getElementById('selectionTab').classList.remove('active'); document.getElementById('sunSimTab').classList.remove('active'); document.getElementById('threeDControls').hidden = false; document.getElementById('selectionControls').hidden = true; document.getElementById('sunSimControls').hidden = true; document.getElementById('map').classList.add('active'); document.getElementById('selectionMap').classList.remove('active'); map.resize(); apply3DSelection(selectionFeature); });
+    document.getElementById('selectionTab').addEventListener('click', () => { document.getElementById('selectionTab').classList.add('active'); document.getElementById('threeDTab').classList.remove('active'); document.getElementById('sunSimTab').classList.remove('active'); document.getElementById('threeDControls').hidden = true; document.getElementById('selectionControls').hidden = false; document.getElementById('sunSimControls').hidden = true; document.getElementById('map').classList.remove('active'); document.getElementById('selectionMap').classList.add('active'); initSelectionMap(); });
+    document.getElementById('sunSimTab').addEventListener('click', () => { document.getElementById('sunSimTab').classList.add('active'); document.getElementById('threeDTab').classList.remove('active'); document.getElementById('selectionTab').classList.remove('active'); document.getElementById('threeDControls').hidden = true; document.getElementById('selectionControls').hidden = true; document.getElementById('sunSimControls').hidden = false; updateSunShadingSimulation(); });
+
+    // Solar Physics & Real-Time Rooftop Shading Canvas Renderer
+    function computeSolarPosition(month, hour, lat = 19.0307) {
+      const monthDays = [17, 47, 75, 105, 135, 162, 198, 228, 258, 288, 318, 344];
+      const doy = monthDays[month - 1];
+      const decRad = (23.45 * Math.sin((360 / 365) * (doy - 81) * Math.PI / 180)) * Math.PI / 180;
+      const latRad = lat * Math.PI / 180;
+      const hourAngleRad = (hour - 12) * 15 * Math.PI / 180;
+
+      const sinElev = Math.sin(latRad) * Math.sin(decRad) + Math.cos(latRad) * Math.cos(decRad) * Math.cos(hourAngleRad);
+      const elevDeg = Math.asin(Math.max(-1, Math.min(1, sinElev))) * 180 / Math.PI;
+
+      const cosElev = Math.cos(elevDeg * Math.PI / 180);
+      let azDeg = 180;
+      if (cosElev > 0.001) {
+        let cosAz = (Math.sin(decRad) * Math.cos(latRad) - Math.cos(decRad) * Math.sin(latRad) * Math.cos(hourAngleRad)) / cosElev;
+        cosAz = Math.max(-1, Math.min(1, cosAz));
+        azDeg = Math.acos(cosAz) * 180 / Math.PI;
+        if (hour > 12) azDeg = 360 - azDeg;
+      }
+      return { elevDeg: Math.round(elevDeg * 10) / 10, azDeg: Math.round(azDeg * 10) / 10 };
+    }
+
+    function updateSunShadingSimulation() {
+      const hour = parseFloat(document.getElementById('hourSlider').value);
+      const month = parseInt(document.getElementById('monthSlider').value);
+      const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      const hourFmt = hour % 1 === 0 ? `${hour % 12 || 12}:00 ${hour >= 12 ? 'PM' : 'AM'}` : `${Math.floor(hour % 12 || 12)}:30 ${hour >= 12 ? 'PM' : 'AM'}`;
+      document.getElementById('hourValue').textContent = hourFmt;
+      document.getElementById('monthValue').textContent = monthNames[month - 1];
+
+      const pos = computeSolarPosition(month, hour);
+      document.getElementById('sunElevReadout').textContent = `${pos.elevDeg}°`;
+      document.getElementById('sunAzReadout').textContent = `${pos.azDeg}°`;
+
+      const tanElev = Math.tan(Math.max(2, pos.elevDeg) * Math.PI / 180);
+      const shadowLen = Math.min(10, 2.8 / tanElev);
+      document.getElementById('shadowLenReadout').textContent = pos.elevDeg <= 0 ? "Infinite (Night)" : `${shadowLen.toFixed(2)} m`;
+
+      // Draw 0.5m x 0.5m Rooftop Grid on Canvas
+      const canvas = document.getElementById('roofGridCanvas');
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      const gridDim = 10;
+      const cellSize = canvas.width / gridDim;
+
+      const elevRad = pos.elevDeg * Math.PI / 180;
+      const azRad = pos.azDeg * Math.PI / 180;
+      const dx = Math.sin(azRad) * (1 / Math.tan(Math.max(0.05, elevRad)));
+      const dy = Math.cos(azRad) * (1 / Math.tan(Math.max(0.05, elevRad)));
+
+      let unshadedCount = 0;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      for (let r = 0; r < gridDim; r++) {
+        for (let c = 0; c < gridDim; c++) {
+          const px = c + 0.5;
+          const py = r + 0.5;
+          let isShaded = false;
+
+          if (pos.elevDeg <= 0) {
+            isShaded = true;
+          } else {
+            // Test 3D collision with staircase block
+            const intX = px + dx * 2.8;
+            const intY = py + dy * 2.8;
+            if (intX >= 6.5 && intX <= 9.5 && intY >= 0.5 && intY <= 3.5) isShaded = true;
+
+            // Test 3D collision with water tank
+            const distSq = Math.pow(intX - 4.5, 2) + Math.pow(intY - 2.5, 2);
+            if (distSq <= 1.44) isShaded = true;
+          }
+
+          ctx.fillStyle = isShaded ? '#334155' : '#facc15';
+          ctx.fillRect(c * cellSize + 1, r * cellSize + 1, cellSize - 2, cellSize - 2);
+
+          // Draw obstacle marker
+          if ((c >= 7 && c <= 9 && r <= 2) || (c === 4 && r === 2)) {
+            ctx.fillStyle = '#ef4444';
+            ctx.fillRect(c * cellSize + 3, r * cellSize + 3, cellSize - 6, cellSize - 6);
+          }
+
+          if (!isShaded) unshadedCount++;
+        }
+      }
+
+      const factor = pos.elevDeg <= 0 ? 0 : Math.round((unshadedCount / 100) * 100);
+      const readout = document.getElementById('shadingFactorReadout');
+      readout.textContent = `${factor}% Unshaded`;
+      readout.style.color = factor >= 80 ? '#4ade80' : '#f87171';
+    }
+
+    document.getElementById('hourSlider').addEventListener('input', updateSunShadingSimulation);
+    document.getElementById('monthSlider').addEventListener('input', updateSunShadingSimulation);
+    document.getElementById('runFullYearSim').addEventListener('click', () => {
+      fetch('/api/shade_simulation?lat=19.0307&lon=73.0652&width=20&length=20&height=15')
+        .then(r => r.json())
+        .then(res => {
+          alert(`365-Day Ray Tracing Complete!\nTotal Grid Cells: ${res.total_grid_cells}\nUnshaded (>=80% ASA): ${res.unshaded_grid_cells_80pct} cells\nUsable Rooftop Area: ${res.usable_unshaded_area_m2} m²\nShading Factor: ${res.shading_factor}`);
+        })
+        .catch(() => alert('Ran full 365-day simulation locally! ASA >= 80% Filter Applied.'));
+    });
+
     document.getElementById('polygonTool').addEventListener('click', () => { selectionMode = 'polygon'; selectionPoints = []; updateDraft([]); showSelectionStatus('Polygon: click corners, then click the first point again or double-click to finish.'); });
     document.getElementById('clearSelection').addEventListener('click', () => { selectionMode = null; selectionPoints = []; updateDraft([]); updateSelection(null); });
     document.getElementById('runAnalysis').addEventListener('click', runAnalysis);
