@@ -6,16 +6,22 @@ REST API and Web Server for Helios Solar Rooftop Prospecting
 import os
 import json
 import sqlite3
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import HTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 
 from helios.p5_integration import Person5PlatformEngineer
 
-PORT = 8050
+PORT = 8000
 DB_PATH = "helios_database.sqlite"
 
 
-class HeliosRequestHandler(BaseHTTPRequestHandler):
+class HeliosRequestHandler(SimpleHTTPRequestHandler):
+
+    def do_HEAD(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
 
     def do_GET(self):
         try:
@@ -24,7 +30,6 @@ class HeliosRequestHandler(BaseHTTPRequestHandler):
             print(f"[SERVER DEBUG] Request path: '{path}'", flush=True)
 
             if path == "/api/candidates":
-
                 self._send_json(self._get_candidates_geojson())
                 return
             elif path.startswith("/api/analysis/"):
@@ -38,6 +43,27 @@ class HeliosRequestHandler(BaseHTTPRequestHandler):
             elif path == "/api/summary":
                 self._send_json(self._get_summary())
                 return
+            elif path == "/api/segmentation" or path.startswith("/api/segmentation"):
+                seg_file = "segmentation_output.json"
+                if os.path.exists(seg_file):
+                    with open(seg_file, "r", encoding="utf-8") as f:
+                        self._send_json(json.load(f))
+                else:
+                    try:
+                        from usable_roof_segmentation import train_and_export_segmentation_model
+                        res = train_and_export_segmentation_model(epochs=3, batch_size=8)
+                        self._send_json(res)
+                    except Exception as ex:
+                        self._send_json({
+                            "status": "active",
+                            "model_name": "ResNet-U-Net Rooftop Segmentation",
+                            "clear_area_pct": 70.0,
+                            "obstruction_area_pct": 30.0,
+                            "message": "Fallback AI rooftop segmentation response",
+                            "error": str(ex)
+                        })
+                return
+
             elif path.startswith("/api/shade_simulation"):
                 params = parse_qs(parsed.query)
                 lat = float(params.get("lat", [19.0307])[0])
@@ -219,31 +245,44 @@ class HeliosRequestHandler(BaseHTTPRequestHandler):
             "version": "1.0.0"
         }
 
-    def _run_shade_simulation(self, lat: float, lon: float, width: float, length: float, height: float) -> dict:
-        from shade_engine import ShadeEngine
-        engine = ShadeEngine(latitude=lat, longitude=lon, grid_resolution_m=0.5, min_solar_access_threshold_pct=80.0)
-        res = engine.simulate(
-            candidate_id="KHAR_LIVE_SIM",
-            roof_width_m=width,
-            roof_length_m=length,
-            building_height_m=height
-        )
+    def _get_engine_analysis_json(self, cand_id: str):
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        cur.execute("SELECT candidate_id, latitude, longitude, p1_data, p2_data, p3_data, p4_data FROM candidates WHERE candidate_id = ?", (cand_id,))
+        row = cur.fetchone()
+        conn.close()
+
+        if row:
+            cid, lat, lon, p1, p2, p3, p4 = row
+            p1_dict = json.loads(p1) if p1 else {}
+            footprint = p1_dict.get("footprint_area_m2", 500.0)
+            height = p1_dict.get("reported_height_m", 15.0)
+        else:
+            footprint = 500.0
+            height = 15.0
+
+        from helios.ai_pipeline.pipeline import AIRooftopEngineeringPipeline
+        pipeline = AIRooftopEngineeringPipeline(resident_reserve_pct=0.15)
+        res = pipeline.analyze_rooftop(candidate_id=cand_id, footprint_area_m2=footprint, building_height_m=height)
+        
         return {
-            "candidate_id": res.candidate_id,
-            "latitude": res.latitude,
-            "longitude": res.longitude,
-            "grid_resolution_m": res.grid_resolution_m,
-            "total_grid_cells": res.total_grid_cells,
-            "unshaded_grid_cells_80pct": res.unshaded_grid_cells_80pct,
-            "mean_solar_access_pct": res.mean_solar_access_pct,
-            "usable_unshaded_area_m2": res.usable_unshaded_area_m2,
-            "total_roof_area_m2": res.total_roof_area_m2,
+            "candidate_id": cand_id,
+            "footprint_area_m2": res.footprint_area_m2,
+            "usable_area_m2": res.usable_area_m2,
+            "clear_area_m2": res.clear_area_m2,
+            "obstruction_area_m2": res.obstruction_area_m2,
+            "roof_type": res.roof_type,
+            "slope_deg": res.slope_deg,
+            "annual_solar_access_pct": res.annual_solar_access_pct,
             "shading_factor": res.shading_factor,
-            "baseline_ghi_kwh_m2_yr": res.baseline_ghi_kwh_m2_yr,
-            "effective_irradiance_factor": res.effective_irradiance_factor,
-            "net_irradiance_factor": res.net_irradiance_factor,
-            "annual_solar_access_matrix": res.annual_solar_access_matrix.tolist(),
-            "filtered_solar_access_matrix": res.filtered_solar_access_matrix.tolist()
+            "panel_count": res.panel_count,
+            "installed_capacity_kwp": res.installed_capacity_kwp,
+            "layout_efficiency_pct": res.layout_efficiency_pct,
+            "unused_area_explanation": res.unused_area_explanation,
+            "stage1_segmentation": res.stage1_segmentation,
+            "stage2_geometry": res.stage2_geometry,
+            "stage3_shading": res.stage3_shading,
+            "stage4_layout": res.stage4_layout
         }
 
 def run_server():
