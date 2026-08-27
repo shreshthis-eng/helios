@@ -173,6 +173,8 @@
         map.addSource('person1', { type: 'geojson', data: '/api/candidates' });
         map.addLayer({ id: 'person1-footprints', type: 'line', source: 'person1', paint: { 'line-color': '#fbbf24', 'line-width': 2, 'line-opacity': 0.95 } });
       }
+      map.addSource('dynamic-sun-shadows', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+      map.addLayer({ id: 'dynamic-sun-shadows-layer', type: 'fill', source: 'dynamic-sun-shadows', paint: { 'fill-color': '#020617', 'fill-opacity': 0.65 } });
       map.addSource('aoi-3d', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
       map.addLayer({ id: 'aoi-3d-fill', type: 'fill', source: 'aoi-3d', paint: { 'fill-color': '#fef3c7', 'fill-opacity': 0.42 } });
       map.addLayer({ id: 'aoi-3d-line', type: 'line', source: 'aoi-3d', paint: { 'line-color': '#f59e0b', 'line-width': 3, 'line-opacity': 0.9 } });
@@ -505,6 +507,58 @@
       const readout = document.getElementById('shadingFactorReadout');
       readout.textContent = `${factor}% Unshaded`;
       readout.style.color = factor >= 80 ? '#4ade80' : '#f87171';
+
+      // 3D SUN SIMULATION DIRECTLY ON THE MAP
+      if (window.map) {
+        // 1. Dynamic 3D Directional Sun Light on the Map
+        const lightElev = Math.max(1, pos.elevDeg);
+        const lightIntensity = pos.elevDeg <= 0 ? 0.05 : Math.max(0.2, Math.sin(elevRad) * 0.95);
+        const lightColor = pos.elevDeg > 20 ? '#fff3d1' : (pos.elevDeg > 0 ? '#fdba74' : '#1e1b4b');
+        if (map.setLight) {
+          map.setLight({
+            anchor: 'viewport',
+            color: lightColor,
+            intensity: lightIntensity,
+            position: [1.5, pos.azDeg, Math.max(2, 90 - lightElev)]
+          });
+        }
+
+        // 2. Dynamic 3D Rooftop Solar Access Heatmap on extruded buildings
+        if (map.getLayer('local-buildings-3d')) {
+          const roofColor = pos.elevDeg <= 0 ? '#1e293b' : (pos.elevDeg >= 45 ? '#38bdf8' : (pos.elevDeg >= 20 ? '#fb923c' : '#ef4444'));
+          map.setPaintProperty('local-buildings-3d', 'fill-extrusion-color', roofColor);
+        }
+        if (map.getLayer('usable-roofs-3d')) {
+          const usableColor = pos.elevDeg <= 0 ? '#0f172a' : (pos.elevDeg >= 45 ? '#facc15' : (pos.elevDeg >= 20 ? '#f97316' : '#dc2626'));
+          map.setPaintProperty('usable-roofs-3d', 'fill-extrusion-color', usableColor);
+        }
+
+        // 3. Dynamic 3D Ground Shadow Polygon Projections across Kharghar
+        if (map.getSource('dynamic-sun-shadows') && window.all3DBuildings && all3DBuildings.features) {
+          const shadowFeatures = [];
+          if (pos.elevDeg > 0) {
+            const shadowMult = Math.min(5.0, 1.0 / Math.tan(Math.max(0.05, elevRad)));
+            const dLon = -Math.sin(azRad) * shadowMult * 0.000006;
+            const dLat = -Math.cos(azRad) * shadowMult * 0.000006;
+
+            all3DBuildings.features.slice(0, 120).forEach(building => {
+              if (!building.geometry || !building.geometry.coordinates) return;
+              const h = Number(building.properties.height_m) || 12.0;
+              const ring = building.geometry.type === 'Polygon' ? building.geometry.coordinates[0] : building.geometry.coordinates[0][0];
+
+              const shadowRing = ring.map(pt => [pt[0] + dLon * (h / 10), pt[1] + dLat * (h / 10)]);
+              const poly = [...ring, ...shadowRing.reverse(), ring[0]];
+
+              shadowFeatures.push({
+                type: 'Feature',
+                geometry: { type: 'Polygon', coordinates: [poly] },
+                properties: {}
+              });
+            });
+          }
+          map.getSource('dynamic-sun-shadows').setData({ type: 'FeatureCollection', features: shadowFeatures });
+        }
+      }
     }
 
     document.getElementById('hourSlider').addEventListener('input', updateSunShadingSimulation);
